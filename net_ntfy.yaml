@@ -1,0 +1,22 @@
+# Messaging
+ntfy:
+  channel: example_ntfy_channel
+
+# Monitoring SSH (as in .ssh/config)
+ssh:
+  - period: 3  # in minutes
+    host: my_server
+  - period: 5
+    host: my_second_server
+
+# Monitoring TCP ports
+# like e.g. "nc -zv google.de 443" on CLI
+tcp:
+  - period: 5  # Google search Web-GUI
+    host: google.de
+    port: 443
+  - period: 2  # Google DNS
+    host: 8.8.8.8
+    port: 53
+
+#EOF
