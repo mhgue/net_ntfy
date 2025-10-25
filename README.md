@@ -76,10 +76,9 @@ The script is constructed in an OOP manner in classes:
 Further version may provide additional `Test_*` classes.
 
 ### Logging
-A function decorator is provided for mor detailed logging if **-v** option is used.
-The decorator is wrapping the function and logging function calls and returns.
-For class member functions the class name is logged.
-In addition to the function name their parameters are logged too.
+A function decorator is provided for more detailed logging if **-v** option is used.
+The decorator is wrapping the function and logging function calls and returns with their parameters.
+For member functions the class name is logged.
 
 </details>
 
@@ -87,6 +86,7 @@ In addition to the function name their parameters are logged too.
 This script is published unter the [Apache License Version 2.0](LICENSE) or later.
 
 ## Related
+* [ntfy](https://ntfy.sh/), [@Github](https://github.com/binwiederhier/ntfy) *Send push notifications to your phone or desktop via PUT/POST. Written in Go and JavaScript*
 * [WatchYourLAN](https://github.com/aceberg/WatchYourLAN) *Lightweight network IP scanner with web GUI. Written in Go and TypeScript.*
 
 ### Tags
