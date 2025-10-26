@@ -430,7 +430,7 @@ class Test_ARP:
 # Clean stop
 def stop():
     logging.info(f"{sys._getframe().f_code.co_name}()")
-    msg.send("Stop watching", "Stop", "default", "stop_sign,stop_sign")
+    msg.send("Stop network notification", "Stop", "default", "stop_sign,stop_sign")
     sys.exit(0)
 
 def signal_handler(sig, frame):
@@ -512,7 +512,7 @@ def main():
 
     try:
         # Do report start of test.
-        msg.send("Start watching", "Start", "default", "eyes")
+        msg.send("Start network notification", "Start", "default", "eyes")
 
         # Do run the event scheduler.
         while not tq.is_empty():
