@@ -108,6 +108,7 @@ cp net_ntfy_venv.service /etc/systemd/system/net_ntfy.service
 systemctl daemon-reload
 systemctl enable net_ntfy.service
 systemctl start net_ntfy.service
+# There should be a start message on your ntfy app.
 # Check with
 systemctl status net_ntfy.service
 # Read log
@@ -176,6 +177,13 @@ Further version may provide additional `Test_*` classes.
 A function decorator is provided for more detailed logging if **-v** option is used.
 The decorator is wrapping the function and logging function calls and returns with their parameters.
 For member functions the class name is logged.
+
+## ToDo
+Collection of things that may be nice and if there is enough time may appear here:
+* Do support other ntfy hosts (not just ntfy.sh) by YAML config.
+* Do provide host names from DNS and/or YAML for IP and/or MAC.
+* Do provide instance name if running on several hosts using same ntfy channel.
+* Do support probing UDP ports.
 
 ## License
 This script is published unter the [Apache License Version 2.0](LICENSE) or later.
