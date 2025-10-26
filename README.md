@@ -93,13 +93,17 @@ journalctl -u net_ntfy.service
 * If modules shall not be installed for the entire system:
 ```bash
 sudo su -
+# Install python3 and virtual environment
+apt install python3 python3-venv
 cd /opt
 git clone https://github.com/mhgue/net_ntfy.git
 cd net_ntfy
 # Edit net_ntfy.yaml for your needs and ntfy channel.
 # Run creating a virtual environment
-net_ntfy.sh
+./net_ntfy.sh
+# There should be a start message on your ntfy app.
 # Do stop using Ctrl-C
+# There should be a stop message on your ntfy app.
 cp net_ntfy_venv.service /etc/systemd/system/net_ntfy.service
 systemctl daemon-reload
 systemctl enable net_ntfy.service
