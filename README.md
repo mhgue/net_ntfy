@@ -69,6 +69,47 @@ The python script [net_ntfy.py](net_ntfy.py) has command line options for debug 
 * **-v** Is a flag for verbose logging of the script actions. It is setting the logging level to `DEBUG`.
 * **-h** Can be used to get a list of the options available.
 
+### Run as systemd Daemon
+This script is most useful if running no a permanently powered Linux host as a daemon process.
+This can be a very tiny Linux host.
+There are two way to do so:
+* If all python modules are installed on the system, the python script can be installed as a `systemd` service:
+
+```bash
+sudo su -
+cd /opt
+git clone https://github.com/mhgue/net_ntfy.git
+cd net_ntfy
+# Edit net_ntfy.yaml for your needs and ntfy channel.
+cp net_ntfy.service /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable net_ntfy.service
+systemctl start net_ntfy.service
+# Check with
+systemctl status net_ntfy.service
+# Read log
+journalctl -u net_ntfy.service
+```
+* If modules shall not be installed for the entire system:
+```bash
+sudo su -
+cd /opt
+git clone https://github.com/mhgue/net_ntfy.git
+cd net_ntfy
+# Edit net_ntfy.yaml for your needs and ntfy channel.
+# Run creating a virtual environment
+net_ntfy.sh
+# Do stop using Ctrl-C
+cp net_ntfy_venv.service /etc/systemd/system/net_ntfy.service
+systemctl daemon-reload
+systemctl enable net_ntfy.service
+systemctl start net_ntfy.service
+# Check with
+systemctl status net_ntfy.service
+# Read log
+journalctl -u net_ntfy.service
+```
+
 ## Configuration
 
 Configuration is done by a YAML file.

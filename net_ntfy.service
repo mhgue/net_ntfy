@@ -1,0 +1,15 @@
+[Unit]
+Description=Network Notification Daemon
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /opt/net_ntfy/net_ntfy.py
+WorkingDirectory=/opt/net_ntfy
+User=root
+Group=root
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

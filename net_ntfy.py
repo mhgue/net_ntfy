@@ -6,6 +6,21 @@
 Probe network connections
 sudo apt install python3 python3-sh python3-requests
 
+If shall run as a root daemon on a debian system do:
+  cd /opt
+  git clone https://github.com/mhgue/net_ntfy.git
+  cd net_ntfy
+  sudo cp net_ntfy.service /etc/systemd/system/
+  sudo systemctl daemon-reload
+  sudo systemctl enable net_ntfy.service
+  sudo systemctl start net_ntfy.service
+Check with
+  sudo systemctl status net_ntfy.service
+Read log:
+  sudo journalctl -u net_ntfy.service
+
+see README.md for more options.
+
 """
 
 import argparse
