@@ -19,4 +19,17 @@ tcp:
     host: 8.8.8.8
     port: 53
 
+# Scan networks by arp (root privileges needed)
+arp:
+  - period: 2  # Default is own local default route network.
+    timeout: 5
+    scan: 5
+    validation: 5
+  - period: 3
+    net: 10.8.0.0/24
+
+# Ignore devices e.g. moving around in WLAN.
+ignore:
+  - mac: eb:07:6a:26:41:4b
+
 #EOF

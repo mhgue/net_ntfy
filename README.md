@@ -1,9 +1,13 @@
 # Notifications on mobile phone if connectivity of hosts changes using python and ntfy
-Network Notify (*net_ntfy*) is a python script monitoring a list of hosts by ssh connection or by TCP port scan (further methods in future versions).
+Network Notify (*net_ntfy*) is a python script monitoring
+* a list of hosts by ssh connection or 
+* a list of hosts by TCP port scan or
+* a list of networks by ARP scan.
 If one of the hosts connectivity state is changing, a message is send to a mobile phone by [ntfy](https://ntfy.sh/) channel.
 This script is a small and easy way to get notified if things change in your network.
 
 As a python script it may run anywhere, but as a linux user I have not tested other platforms.
+If using ARP scan, that will need `root` privileges, together with SSH of a different user, there will be some very linux depending commands used.
 
 ## Function
 
@@ -14,21 +18,29 @@ In a [YAML file](net_ntfy.yaml) the configuration can be written, with
 * the ntfy channel
 * a list of hosts to check by ssh
 * a list of hosts and ports to check by TCP connect
-* for each entry a period of time in minutes for repeated check.
+* a list of networks to monitor by ARP scan
+* for each entry above a period of time in minutes for repeated check.
+* a list of MAC or IP addresses to be ignored
 
 If the state of a host is changing (appears or disappears), you get a notification by ntfy on your mobile phone.
 
 </details>
 
-## Intension
+## Intension and Requirements
 
 <details>
   <summary>Expand</summary>
 
 This script is intended to work on small embedded linux systems to keep track of devices in a personal networking environment.
-It is a lightweight script easily running in a python environment very few further dependencies.
-If SSH monitoring is used, the ssh command with configured hosts is needed.
-The TCP port monitoring is implemented completely inside python.
+It is intended to run on any device on the network without special interfaces or privileges.
+It is a lightweight script easily running in a python environment with very few further dependencies.
+If SSH monitoring is used, the ssh command with configured hosts in `.ssh/config` is needed.
+For SSH logon keys and an agent shall be in operation.
+The TCP port monitoring is implemented completely inside python without further needs.
+The ARP scan needs `root` privileges.
+
+This script may run with some restrictions (see [Users to use](#users-to-use)) as a daemon process on any linux device.
+It may operate a as network monitoring service on a home server or any other small device (Raspberry Pi, NanoPi, ...).
 
 </details>
 
@@ -52,12 +64,72 @@ So the convenient usage is:
 To use ntfy you need to install the [ntfy app](https://play.google.com/store/apps/details?id=io.heckel.ntfy&hl=en) on your mobile phone and create a channel name.
 This channel name must be entered in the [YAML config file](net_ntfy.yaml).
 
+### Using ARP Scans
+To perform an ARP scan, the script needs to be executed with `root` privileges.
+Therefore is lust be started with `sudo` or from a service already provided with `root` privileges.
+
+CAUTION: You should not execute any script from Github et al. with `root` privileges!
+So this is the perfect moment to have a look at the source code to find out if you can trust this script.
+This is one of the reasons, why scripts like this are made in one file and hopefully reasonable readable.
+You may ask an AI if you can trust this script, just as an additional opinion.
+Make sure this script doesn't kill small cats or doing any other harm to your surroundings.
+
 ### Testing and Debug
 The python script [net_ntfy.py](net_ntfy.py) has command line options for debug and diagnosis.
 * **-m *n*** With this option the number of seconds per minute can be set to a value different to 60. This can be used to testing in time-lapse (e.g. -m 5), or the other way round to run the script with enlarged check intervals (e.g. -m 120).
 * **-c *filename*** Name of the YAML file to read config from. If not provided, a file with the name of the script and the ending `.yaml` is searched in the current working directory and the location of the script.
 * **-v** Is a flag for verbose logging of the script actions.
 * **-h** Can be used to get a list of the options available.
+
+</details>
+
+## Configuration
+
+<details>
+  <summary>Expand</summary>
+
+Configuration is done by a YAML file.
+This file may be provided by **-c *filename***.
+If not provided by command line, there is a list of locations and names where the script is looking for a config file:
+* `./net_ntfy_prio.yaml` *Basename of script without `.py` (even if changed) with `_prio.yaml` appended in current directory.*
+* `./net_ntfy.yaml` *Basename of script without `.py` (even if changed) with `.yaml` appended in current directory.*
+* *script_dir*`/net_ntfy_prio.yaml` *Basename of script without `.py` (even if changed) with `_prio.yaml` appended in the same directory as the script is located.*
+* *script_dir*`/net_ntfy_prio.yaml` *Basename of script without `.py` (even if changed) with `.yaml` appended in the same directory as the script is located.*
+
+The file shall be in [YAML format](https://en.wikipedia.org/wiki/YAML) and may contain the following entries:
+* `ntfy:` with the parameter `channel:` to provide the ntfy channel to be used.
+* `ssh:` a list of entries with parameters
+  * `host:` Name of the ssh connection as defined in your `.ssh/config`. This is the only parameter needed.
+  * `period:` Period of time in minutes for periodic check of this SSH connection.
+  * `user:` User to execute `ssh` command if running as `root`. Default is not to change the user or if called via `sudo` use the original user from `SUDO_USER` environment variable.
+  * `sock_type:` Substring of the path to the SSH agents socket to be used (e.g. '/keyring/', '/gnupg/', '/gcr/'). This is needed if there are several sockets used to identify the correct type.
+* `tcp:` a list of entries with parameters
+  * `host:` Hostname or IP address of the device to monitor. This is the only parameter needed.
+  * `port:` Port to be monitored. Default is 22 for SSH. You may use 80 for HTTP, 443 for HTTPS or any other.
+  * `period:` Period of time in minutes for periodic check of this TCP port connection.
+* `arp:` a list of networks to be monitored by ARP scan.
+  * `net:` Network address in [CIDR](https://en.wikipedia.org/wiki/Classless_Inter-Domain_Routing) notation (e.g. `192.168.1.0/24`). The default is to use the network used as default route.
+  * `period:` Period of time in minutes for periodic check of this network.
+  * `timeout:` Time in seconds to wait for ARP request reply.
+  * `scan:` Number of times to repeat the ARP request and accumulate results.
+  * `validation:` Number of consecutive attempts to assume a device as being disappeared.
+* `ignore:` a list of entries to be ignored for detection and reporting on ARP scans. Not networks or wildcards supported.
+  * `mac:` MAC address to be ignored
+  * `ip:` IP address to be ignored
+
+Do read the [example provided here](net_ntfy.yaml).
+
+### Users to use
+This script can be executed in three different ways:
+* As an ordinary non privileged user. In this way the ARP scan can not be used for monitoring.
+* As `root` user using `root` SSH. In this way ARP scan and SSH probes can be used, but there must be a ssh agent running for SSH key used by `root`. This configuration is not very save.
+* As `root` user but using non privileged users SSH. This is a litte complicated, because the `root` user needs to find out the SSH agents socket of the non privileged user.
+
+Using SSH connection probes is not practical for operation of the script as a daemon.
+There will be no one to enter the passphrase on system startup.
+Therefore if running as a daemon there are two options:
+* Running as a non privileged user using TCP port probes only. By far the saves setup.
+* Running as `root` using a combination of TCP probes and ARP scan only.
 
 </details>
 
@@ -72,6 +144,7 @@ The script is constructed in an OOP manner in classes:
 * `TimedFunctionQueue` A class providing a timed queue of functions to be called. This enables cooperative execution of many tests with independent periods without the need of multithreading.
 * `Test_SSH` A class to execute SSH connection tests.
 * `Test_TCP` A class to execute TCP port connection tests.
+* `Test_ARP` A class to execute ARP scans of networks.
 
 Further version may provide additional `Test_*` classes.
 

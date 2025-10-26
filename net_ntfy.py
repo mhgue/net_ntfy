@@ -8,20 +8,24 @@ sudo apt install python3 python3-sh python3-requests
 
 """
 
-import subprocess
+import argparse
+import grp
 import heapq
-import time
-import threading # For locking only
+import inspect
+import logging # Prevent using print()
+import os
+import psutil
+import pwd
 import requests
 import signal
-import sys
-import os
-import argparse
-import logging # Prevent using print()
-from functools import wraps
-import inspect
 import socket
+import subprocess
+import sys
+import threading # For locking support only (not multithreading used)
+import time
 import yaml
+from functools import wraps
+from scapy.all import ARP, Ether, srp # Used for ARP network scanning
 
 # Decorator to log function entry and exit for members with class name
 # and providing parameters in log.
@@ -50,6 +54,11 @@ def log_calls(func):
         return result
     return wrapper
 
+class ConfigError(Exception):
+    def __init__(self, message="YAML Config Failed"):
+        self.message = message
+        super().__init__(self.message)
+
 # Get configuration from YAML file
 class Config:
     def __init__(self, filename = None):
@@ -61,6 +70,9 @@ class Config:
     # Provide YAML data access by class object subscription.
     def __getitem__(self, key):
         return self._data[key]
+
+    def __contains__(self, key):
+        return key in self._data
 
     @log_calls
     def _guess_file(self, filename):
@@ -87,11 +99,7 @@ class Config:
             return
         if self._guess_file(f"{dir}/{name}.yaml"):
             return
-        logging.critical(f"No config file (e.g. {name}.yaml)")
-        sys.exit(1)
-        
-    def dump(self):
-        print(self._data)
+        raise ConfigError(f"No config file (e.g. {name}.yaml)")
 
 # To report observed network incidents to mobile phone.
 class SendNTFY:
@@ -197,22 +205,64 @@ class TimedFunctionQueue:
 class Test_SSH:
     def __init__(self):
         self._return_codes = dict()
+        self._user_ssh_sock = dict()
 
     def cleanup_string(self, s):
         return s.decode('utf-8').strip().replace("\r\n", " ").replace("\n", " ").replace("\r", " ")
 
+    # Do find the ssh agent of another user to prevent from asking for passphrase.
     @log_calls
-    def probe(self, host):
+    def get_user_ssh_sock(self, user, sock_type=None):
+        if user in self._user_ssh_sock:
+            return self._user_ssh_sock[user]
+        else:
+            # iterate user's processes
+            pids = subprocess.check_output(['pgrep', '-u', user]).split()
+            for pidb in pids:
+                pid = pidb.decode()
+                try:
+                    with open(f'/proc/{pid}/environ', 'rb') as f:
+                        env = f.read().split(b'\x00')
+                    for e in env:
+                        if e.startswith(b'SSH_AUTH_SOCK='):
+                            value = e.split(b'=',1)[1].decode()
+                            logging.debug(f'user: {user}, socket: {value}')
+                            if sock_type:
+                                if sock_type in value:
+                                    self._user_ssh_sock[user]=value
+                                    return value
+                            else:
+                                self._user_ssh_sock[user]=value
+                                return value
+                except Exception:
+                    continue
+        return None
+
+    @log_calls
+    def probe(self, host, user=None, sock_type=None):
         try:
-            # Verwende subprocess, um den SSH-Befehl auszuführen
-            result = subprocess.run(
-                # Der "exit"-Befehl beendet die Verbindung nach einem erfolgreichen Login
-                ["ssh", host, "exit"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                # Timeout nach 10 Sekunden
-                timeout=15
-            )
+            # Run ssh as subprocess with sudo if requested.
+            if user and user != 'root':
+                user_sock = self.get_user_ssh_sock(user, sock_type)
+            if user and user_sock:
+                logging.debug(f'Running ssh as user {user} using {user_sock}')
+                result = subprocess.run(
+                    # Der "exit"-Befehl beendet die Verbindung nach einem erfolgreichen Login
+                    [ 'sudo', '-u', user, 'env', f'SSH_AUTH_SOCK={user_sock}', 'ssh', host, 'exit' ],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    # Timeout nach 10 Sekunden
+                    timeout=15
+                )
+            else:
+                result = subprocess.run(
+                    # Der "exit"-Befehl beendet die Verbindung nach einem erfolgreichen Login
+                    ["ssh", host, "exit"],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    # Timeout nach 10 Sekunden
+                    timeout=15
+                )
             # Prüfe, ob der Befehl erfolgreich war (Rückgabewert 0 bedeutet Erfolg)
             if result.returncode == 0:
                 return 0
@@ -226,17 +276,26 @@ class Test_SSH:
             return -2
 
     @log_calls
-    def test(self, host, period_s):
-        return_code = self.probe(host)
+    def test(self, period_s, host, user = None, sock_type = None):
+        # If running as root do change user for ssh usage.
+        if os.geteuid() == 0:
+            return_code = self.probe(host, user, sock_type)
+        else:
+            return_code = self.probe(host)
+        # Do we have already tested this host?
         if host in self._return_codes:
             if return_code != self._return_codes[host]:
-                msg.send(f"{host} ssh {self._return_codes[host]} => {return_code}",
-                         "Change", "high")
+                if return_code == 0:
+                    msg.send(f"SSH {host} result {self._return_codes[host]} => {return_code}",
+                            "SSH up", "high", "green_circle")
+                else:
+                    msg.send(f"SSH {host} result {self._return_codes[host]} => {return_code}",
+                            "SSH down", "high", "red_circle")
                 self._return_codes[host] = return_code
         else:
             self._return_codes[host] = return_code
         # Schedule again.
-        tq.schedule(period_s, self.test, host, period_s)
+        tq.schedule(period_s, self.test, period_s, host, user)
 
 # Do test host by connecting a TCP port (e.g. ssh=22, http=80, https=443, ...)
 # like e.g. "nc -zv google.de 443" on CLI
@@ -256,22 +315,122 @@ class Test_TCP:
             return -1
 
     @log_calls
-    def test(self, host, port, period_s):
+    def test(self, period_s, host, port):
         return_code = self.probe(host, port)
         if (host, port) in self._return_codes:
             if return_code != self._return_codes[(host, port)]:
-                msg.send(f"{host}:{port} {self._return_codes[host]} => {return_code}",
-                         "Change", "high")
+                if return_code == 0:
+                    msg.send(f"TCP {host}:{port} result {self._return_codes[host]} => {return_code}",
+                            "Host up", "high", "green_circle")
+                else:
+                    msg.send(f"TCP {host}:{port} result {self._return_codes[host]} => {return_code}",
+                            "Host down", "high", "red_circle")
                 self._return_codes[(host, port)] = return_code
         else:
             self._return_codes[(host, port)] = return_code
         # Schedule again.
-        tq.schedule(period_s, self.test, host, port, period_s)
+        tq.schedule(period_s, self.test, period_s, host, port)
+
+class Test_ARP:
+    def __init__(self):
+        self._default_target_net = self.get_ip_and_cidr()
+        # Already seen devices with (MAC, seen counter)
+        self._devices = dict()
+        # Scanned networks number of runs
+        self._net_run = dict()
+        # Create ignore lists from YAML config
+        self._ignore_mac = list()
+        self._ignore_ip = list()
+        if ('ignore' in config) and config['ignore']:
+            for e in config['ignore']:
+                if 'mac' in e:
+                    self._ignore_mac.append(e['mac'])
+                if 'ip' in e:
+                    self._ignore_ip.append(e['ip'])
+
+    def get_default_route_ip(self):
+        """Get the local IP address used for the default route."""
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            # Connect to a public IP (Google DNS), no packets are sent
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+        finally:
+            s.close()
+        return ip
+
+    def get_netmask_of_ip(self, ip):
+        """Loop through network interfaces and find the netmask for the IP."""
+        for iface, info_list in psutil.net_if_addrs().items():
+            for info in info_list:
+                if info.family == socket.AF_INET and info.address == ip:
+                    return info.netmask
+
+    def get_netmask_prefix_length(self, netmask):
+        """Count leading bits of netmask."""
+        netmask_bin = ''.join(f'{int(octet):08b}' for octet in netmask.split('.'))
+        return netmask_bin.count('1')
+
+    def get_ip_and_cidr(self):
+        default_ip = self.get_default_route_ip()
+        netmask = self.get_netmask_of_ip(default_ip)
+        netmask_length = self.get_netmask_prefix_length(netmask)
+        return f"{default_ip}/{netmask_length}"
+
+    #@log_calls
+    def test(self, period_s, timeout, scans, validate, target_net = None):
+        if not target_net:
+            target_net = self._default_target_net
+        # Count network scans per network.
+        self._net_run[target_net] = self._net_run.get(target_net, 0) + 1
+        # Increment last seen counter (in place)
+        for ip in self._devices.keys():
+            self._devices[ip] = (self._devices[ip][0], self._devices[ip][1] + 1)
+        # Do ARP broadcast request
+        logging.debug(f"ARP scan {target_net}")
+        arp = ARP(pdst=target_net)
+        ether = Ether(dst="ff:ff:ff:ff:ff:ff")
+        packet = ether/arp
+        devices = dict()
+        # Repeat scanning
+        for n in range(scans):
+            answered = srp(packet, timeout=timeout, verbose=0)[0]
+            for sent, received in answered:
+                if (not received.hwsrc in self._ignore_mac) and (not received.psrc in self._ignore_ip):
+                    devices[received.psrc] = received.hwsrc
+        # Look for devices seen
+        for ip in devices.keys():
+            # This is an already known IP
+            if ip in self._devices:
+                # Using changed MAC address
+                if self._devices[ip][0] != devices[ip]:
+                    msg.send(f"{ip} changed mac {self._devices[ip][0]} => {devices[ip]}",
+                         "MAC Change", "high", "arrows_counterclockwise")
+                    # Mark as seen right now with new MAC
+                    self._devices[ip] = (devices[ip], 0)
+                else:
+                    # Reset seen counter
+                    self._devices[ip] = (self._devices[ip][0], 0)
+            else:
+                # Add new device as seen right now.
+                self._devices[ip] = (devices[ip], 0)
+                # If network is validated do report new device.
+                if self._net_run[target_net] >= validate:
+                    msg.send(f'{ip} appeared {self._devices[ip][0]}', 
+                             "New IP", "high", "green_circle")
+        # Look for devices not seen for validation period.
+        for ip in list(self._devices.keys()):
+            if self._devices[ip][1] >= validate:
+                msg.send(f'{ip} disappeared {self._devices[ip][0]}',
+                         "IP Gone", "high", "red_circle")
+                del self._devices[ip]
+        # Schedule again.
+        tq.schedule(period_s, self.test, period_s, timeout, scans, validate, target_net)
 
 # Clean stop
 def stop():
     logging.info(f"{sys._getframe().f_code.co_name}()")
-    msg.send("Stop watching", "Stop", "default", "heavy_check_mark")
+    msg.send("Stop watching", "Stop", "default", "stop_sign,stop_sign")
     sys.exit(0)
 
 def signal_handler(sig, frame):
@@ -299,8 +458,11 @@ def main():
     signal.signal(signal.SIGINT, signal_handler)
 
     # Do read config
+    global config
     config = Config(args.config)
     #config.dump()
+    # If called via sudo, do use original user as default.
+    default_user = os.environ.get("SUDO_USER")
 
     # Global timed queue and messaging
     global tq
@@ -310,22 +472,60 @@ def main():
 
     # Schedule tests to be done.
     ts = Test_SSH()
-    for e in config['ssh']:
-        tq.schedule(args.min*e['period'], ts.test, e['host'], args.min*e['period'])
+    if ('ssh' in config) and config['ssh']:
+        for e in config['ssh']:
+            # Default is 5 minutes period
+            period_s = e.get('period', 5)*args.min
+            # Do execute ssh as given user. Default is to use the original user before sudo.
+            user = e.get('user', default_user)
+            # Do specify the socket type to look for (e.g. '/keyring/', '/gnupg/', '/gcr/')
+            sock_type = e.get('sock_type', None)
+            if not 'host' in e:
+                logging.fatal(f'YAML Fail: ssh entry without host is ignored')
+            else:
+                tq.schedule(period_s, ts.test, period_s, e['host'], user, sock_type)
     tt = Test_TCP()
-    for e in config['tcp']:
-        tq.schedule(args.min*e['period'], tt.test, e['host'], e['port'], args.min*e['period'])
+    if ('tcp' in config) and config['tcp']:
+        for e in config['tcp']:
+            # Default is 5 minutes period
+            period_s = e.get('period', 5)*args.min
+            # Default port is SSH (22)
+            port = e.get('port', 22)
+            if not 'host' in e:
+                logging.fatal(f'YAML Fail: tcp entry without host is ignored')
+            else:
+                tq.schedule(period_s, tt.test, period_s, e['host'], port)
+    ta = Test_ARP()
+    if ('arp' in config) and config['arp']:
+        for e in config['arp']:
+            # Default is 5 minutes period
+            period_s = e.get('period', 5)*args.min
+            # Default is network of default route
+            net = e.get('net', None)
+            # Default is 3 seconds timeout of ARP request
+            timeout = e.get('timeout', 3)
+            # Default is 3 times repeating ARP request
+            scans = e.get('scans', 3)
+            # Default is state change report after 5 observations.
+            validate = e.get('validate', 5)
+            tq.schedule(period_s, ta.test, period_s, timeout, scans, validate, net)
 
-    # Do report start of test.
-    msg.send("Start watching", "Start", "default", "heavy_check_mark")
+    try:
+        # Do report start of test.
+        msg.send("Start watching", "Start", "default", "eyes")
 
-    # Do run the event scheduler.
-    while not tq.is_empty():
-        tq.run_pending()
-        delay_s = tq.until_next_s()
-        if delay_s > 0:
-            logging.debug(f"Sleep for {delay_s:.1f} s")
-            time.sleep(delay_s)
+        # Do run the event scheduler.
+        while not tq.is_empty():
+            tq.run_pending()
+            delay_s = tq.until_next_s()
+            if delay_s > 0:
+                logging.debug(f"Sleep for {delay_s:.1f} s")
+                time.sleep(delay_s)
+
+    except Exception as e:
+        logging.fatal(f'Exception: {e}')
+        msg.send(f'Exception: {e}', "Exception", "max", "scream")
+        stop()
 
 if __name__ == "__main__":
     main()
