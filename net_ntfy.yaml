@@ -1,6 +1,13 @@
 # Messaging
 ntfy:
-  channel: example_ntfy_channel
+  - channel: example_net_ntfy_channel
+    # One of the other public ntfy servers
+    host: ntfy.tedomum.net
+    # Name to identify this reporting instance if sharing same channel.
+    instance: Uptown
+    # Do report on second server too.
+  - channel: example_net_ntfy_channel
+    instance: Uptown
 
 # Monitoring SSH (as in .ssh/config)
 ssh:

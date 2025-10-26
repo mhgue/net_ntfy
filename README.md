@@ -52,6 +52,20 @@ So the convenient usage is:
 To use ntfy you need to install the [ntfy app](https://play.google.com/store/apps/details?id=io.heckel.ntfy&hl=en) on your mobile phone and create a channel name.
 This channel name must be entered in the [YAML config file](net_ntfy.yaml).
 
+If you don't want your notification to travel to the USA and back, you can use other servers than the default one.
+`ntfy.sh` is a single Ubuntu-based virtual machine hosted by DigitalOcean.
+So there are reasons to use other servers and more than one.
+You can setup your own one using [the code](https://github.com/binwiederhier/ntfy) or your can use some of the other public servers e.g.:
+| Server URL                 | Country |
+| -------------------------- | ------- |
+| https://ntfy.jae.fi        | Finland |
+| https://ntfy.tedomum.net   | France  |
+| https://ntfy.hostux.net    | France  |
+| https://ntfy.adminforge.de | Germany |
+| https://ntfy.envs.net      | Germany |
+| https://ntfy.mzte.de       | Germany |
+| https://ntfy.fossman.de    | Germany |
+
 ### Using ARP Scans
 To perform an ARP scan, the script needs to be executed with `root` privileges.
 Therefore is must be started with `sudo` or from a service already provided with `root` privileges.
@@ -126,23 +140,26 @@ If not provided by command line, there is a list of locations and names where th
 * *script_dir*`/net_ntfy_prio.yaml` *Basename of script without `.py` (even if changed) with `.yaml` appended in the same directory as the script is located.*
 
 The file shall be in [YAML format](https://en.wikipedia.org/wiki/YAML) and may contain the following entries:
-* `ntfy:` with the parameter `channel:` to provide the ntfy channel to be used.
-* `ssh:` a list of entries with parameters
+* `ntfy:` a **list** of ntfy servers and channels
+  * `channel:` The ntfy channel to be used.
+  * `host:` Hostname of the ntfy server to be used.
+  * `instance:` Name to identify this instance of `net_ntfy` on this ntfy channel. To distinguish if channels are shared.
+* `ssh:` a **list** of entries with parameters
   * `host:` Name of the ssh connection as defined in your `.ssh/config`. This is the only parameter needed.
   * `period:` Period of time in minutes for periodic check of this SSH connection.
   * `user:` User to execute `ssh` command if running as `root`. Default is not to change the user or if called via `sudo` use the original user from `SUDO_USER` environment variable.
   * `sock_type:` Substring of the path to the SSH agents socket to be used (e.g. '/keyring/', '/gnupg/', '/gcr/'). This is needed if there are several sockets used and the correct type needs to be identified.
-* `tcp:` a list of entries with parameters
+* `tcp:` a **list** of entries with parameters
   * `host:` Hostname or IP address of the device to monitor. This is the only parameter needed.
   * `port:` Port to be monitored. Default is 22 for SSH. You may use 80 for HTTP, 443 for HTTPS or any other.
   * `period:` Period of time in minutes for periodic check of this TCP port connection.
-* `arp:` a list of networks to be monitored by ARP scan.
+* `arp:` a **list** of networks to be monitored by ARP scan.
   * `net:` Network address in [CIDR](https://en.wikipedia.org/wiki/Classless_Inter-Domain_Routing) notation (e.g. `192.168.1.0/24`). The default is to use the network used as default route.
   * `period:` Period of time in minutes for periodic check of this network.
   * `timeout:` Time in seconds to wait for ARP request reply.
   * `scan:` Number of times to repeat the ARP request and accumulate results.
   * `validation:` Number of consecutive attempts to assume a device as being disappeared.
-* `ignore:` a list of entries to be ignored for detection and reporting on ARP scans. Not networks or wildcards supported.
+* `ignore:` a **list** of entries to be ignored for detection and reporting on ARP scans. Not networks or wildcards supported.
   * `mac:` MAC address to be ignored
   * `ip:` IP address to be ignored
 
@@ -180,10 +197,14 @@ For member functions the class name is logged.
 
 ## ToDo
 Collection of things that may be nice and if there is enough time may appear here:
-* Do support other ntfy hosts (not just ntfy.sh) by YAML config.
 * Do provide host names from DNS and/or YAML for IP and/or MAC.
-* Do provide instance name if running on several hosts using same ntfy channel.
 * Do support probing UDP ports.
+
+### Done
+Things of the ToDo list that are now implemented.
+* Do support other ntfy hosts (not just ntfy.sh) by YAML config.
+* Do support multiple ntfy hosts.
+* Do provide instance name if running on several hosts using same ntfy channel.
 
 ## License
 This script is published unter the [Apache License Version 2.0](LICENSE) or later.

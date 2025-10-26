@@ -116,19 +116,21 @@ class Config:
             return
         raise ConfigError(f"No config file (e.g. {name}.yaml)")
 
-# To report observed network incidents to mobile phone.
+# To report observed network incidents to mobile phone using a ntfy channel.
 class SendNTFY:
-    def __init__(self, channel, host="ntfy.sh"):
+    def __init__(self, channel, host="ntfy.sh", instance=None):
         """
         Initialize sending messages by ntfy.sh
 
         :param channel: ntfy channel to be used.
+        :param host: ntfy server hostname to be used.
+        :param instance: name to tag this net_ntfy instance.
         """
         self._ch = channel
         self._host = host
+        self._instance = instance
         self._url = f"https://{self._host}/{self._ch}"
 
-    # Send message by https://ntfy.sh/
     @log_calls
     def send(self, message, title="Urgent", priority="urgent", tags="warning"):
         """
@@ -139,6 +141,9 @@ class SendNTFY:
         :param priority: Priority of message ["1", ..., "5"] or ["min", "low", "default", "high", "max"|"urgent"]
         :param tags: Tags to show next to the message.
         """
+        # Add instance name as a prefix.
+        if self._instance:
+            message = f'{self._instance}: {message}'
         try:
             response = requests.post( self._url,
                 data=message,
@@ -153,6 +158,21 @@ class SendNTFY:
         except requests.exceptions.RequestException as e:
             logging.warning(f'Message: "{message}" failed: {e}')
             return -1
+
+class SendNTFYs:
+    def __init__(self):
+        """To report observed network incidents to multiple ntfy channels on multiple servers."""
+        self._msg = list()
+
+    def add(self, channel, host="ntfy.sh", instance=None):
+        self._msg.append( SendNTFY(channel, host, instance) )
+        
+    @log_calls
+    def send(self, message, title="Urgent", priority="urgent", tags="warning"):
+        """"Send message to all configured ntfy channels and servers."""
+        if self._msg:
+            for m in self._msg:
+                m.send(message, title, priority, tags)
 
 class TimedFunctionQueue:
     def __init__(self):
@@ -479,11 +499,26 @@ def main():
     # If called via sudo, do use original user as default.
     default_user = os.environ.get("SUDO_USER")
 
-    # Global timed queue and messaging
+    # Global timed queue
     global tq
     tq = TimedFunctionQueue()
+
+    # Global messaging
     global msg
-    msg = SendNTFY(config['ntfy']['channel'])
+    msg = SendNTFYs()
+    if ('ntfy' in config) and config['ntfy']:
+        try:
+            for e in config['ntfy']:
+                # ntfy host. Default is main public server in USA.
+                host = e.get('host', 'ntfy.sh')
+                # This instance to distinguish if sharing channel.
+                instance = e.get('instance', None)
+                if not 'channel' in e:
+                    logging.fatal(f'YAML Fail: ntfy entry without channel is ignored')
+                else:
+                    msg.add(e['channel'], host, instance)
+        except TypeError:
+            logging.fatal(f'YAML Fail: ntfy needs to be an array')
 
     # Schedule tests to be done.
     ts = Test_SSH()
