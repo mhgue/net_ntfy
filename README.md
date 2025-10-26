@@ -10,6 +10,27 @@ This script is a small and easy way to get notified if things change in your net
 As a python script it may run anywhere, but as a linux user I have not tested other platforms.
 If using ARP scan, that will need `root` privileges, together with SSH of a different user, there will be some very linux depending commands used.
 
+## Content
+
+- [Notifications on mobile phone if connectivity of hosts changes using python and ntfy](#notifications-on-mobile-phone-if-connectivity-of-hosts-changes-using-python-and-ntfy)
+  - [Content](#content)
+  - [Function](#function)
+  - [Intension and Requirements](#intension-and-requirements)
+  - [Usage](#usage)
+    - [Using ntfy](#using-ntfy)
+    - [Using ARP Scans](#using-arp-scans)
+    - [Testing and Debug](#testing-and-debug)
+    - [Run as systemd Daemon](#run-as-systemd-daemon)
+  - [Configuration](#configuration)
+    - [Users to use](#users-to-use)
+  - [Construction](#construction)
+    - [Logging](#logging)
+  - [ToDo](#todo)
+    - [Done](#done)
+  - [License](#license)
+  - [Related](#related)
+    - [Tags](#tags)
+
 ## Function
 
 In a [YAML file](net_ntfy.yaml) the configuration can be written, with
