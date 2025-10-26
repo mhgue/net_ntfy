@@ -24,13 +24,12 @@ see README.md for more options.
 """
 
 import argparse
-import grp
 import heapq
 import inspect
 import logging # Prevent using print()
 import os
 import psutil
-import pwd
+import re
 import requests
 import signal
 import socket
@@ -63,9 +62,9 @@ def log_calls(func):
             del bound.arguments["self"]
 
         params_str = ', '.join(f"{n}={v!r}" for n, v in bound.arguments.items())
-        logging.debug(f"Entering: {location}({params_str})")
+        logging.debug(f"Begin: {location}({params_str})")
         result = func(*args, **kwargs)
-        logging.debug(f"Exiting:  {location}({params_str})")
+        logging.debug(f"End  : {location}({params_str})")
         return result
     return wrapper
 
@@ -236,6 +235,88 @@ class TimedFunctionQueue:
             for e in self._pq:
                 logging.info(f'Event: {e}')
 
+class HostInfo:
+    def __init__(self):
+        """Collect and provide host information."""
+        # Initialize pattern
+        self._ipv4_pattern = re.compile(r'^(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.'
+                              r'(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.'
+                              r'(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.'
+                              r'(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$')
+        self._ipv6_pattern = re.compile(r'^([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$')
+        self._mac_pattern = re.compile(r'^([0-9a-fA-F]{2}[:-]){5}[0-9a-fA-F]{2}$')
+        # Dictionary of names of addresses (mac or ip).
+        self._name = dict()
+        # Set of names or addresses to be ignored.
+        self._ignore = set()
+        # Read YAML and fill set and dictionary.
+        if ('host' in config) and config['host']:
+            try:
+                for h in config['host']:
+                    if ('ignore' in h) and h['ignore']:
+                        for tag in ['ip', 'mac', 'name']:
+                            if tag in h:
+                                self._ignore[self.clean(h[tag])]
+                    if ('name' in h) and h['name']:
+                        for tag in ['ip', 'mac']:
+                            if tag in h:
+                                self._name[self.clean(h[tag])] = h['name']
+            except TypeError:
+                logging.fatal(f'YAML Fail: host needs to be an array')
+        
+    def __getitem__(self, addr):
+        addr = self.clean(addr)
+        # If not known by config and valid IP address, try by DNS
+        if not addr in self._name and self.is_ip(addr):
+            try:
+                hostname, _, _ = socket.gethostbyaddr(addr)
+                self._name[addr] = hostname
+            except socket.error as e:
+                logging.warning(f'DNS Failed to get name of {addr}: {e}')
+        if addr in self._name:
+            return f'{self._name[addr]} ({addr})'
+        else:
+            return addr
+
+    def __contains__(self, addr):
+        return addr in self._name
+
+    def clean(self, s):
+        return re.sub(r'\s+', '', s).lower()
+
+    def is_ipv4(self, addr):
+        return bool(self._ipv4_pattern.match(addr))
+
+    def is_ipv6(self, addr):
+        return bool(self._ipv6_pattern.match(addr))
+
+    def is_ip(self, addr):
+        return self.is_ipv4(addr) or self.is_ipv6(addr)
+
+    def is_mac(self, addr):
+        return bool(self._mac_pattern.match(addr))
+
+    def is_addr(self, addr):
+        return self.is_ip(addr) or self.is_mac(addr)
+ 
+    def do_ignore(self, addr):
+        return self.clean(addr) in self._ignore
+
+    def get_ip_from_mac(self, target_mac, target_ip_range="192.168.1.1/24"):
+        # Create an ARP request to get the MAC address of the device
+        arp_request = ARP(pdst=target_ip_range)
+        broadcast = Ether(dst="ff:ff:ff:ff:ff:ff")
+        arp_request_broadcast = broadcast/arp_request
+        
+        # Send the request and get the response
+        answered_list = srp(arp_request_broadcast, timeout=1, verbose=False)[0]
+
+        for element in answered_list:
+            if element[1].hwsrc.lower() == target_mac.lower():
+                return element[1].psrc  # IP Address
+
+        return None  # If no IP was found
+
 # Do test host by using a ssh connection as setup in .ssh/config (with key and agent running)
 class Test_SSH:
     def __init__(self):
@@ -321,10 +402,10 @@ class Test_SSH:
         if host in self._return_codes:
             if return_code != self._return_codes[host]:
                 if return_code == 0:
-                    msg.send(f"SSH {host} result {self._return_codes[host]} => {return_code}",
+                    msg.send(f"SSH {hi[host]} result {self._return_codes[host]} => {return_code}",
                             "SSH up", "high", "green_circle")
                 else:
-                    msg.send(f"SSH {host} result {self._return_codes[host]} => {return_code}",
+                    msg.send(f"SSH {hi[host]} result {self._return_codes[host]} => {return_code}",
                             "SSH down", "high", "red_circle")
                 self._return_codes[host] = return_code
         else:
@@ -355,10 +436,10 @@ class Test_TCP:
         if (host, port) in self._return_codes:
             if return_code != self._return_codes[(host, port)]:
                 if return_code == 0:
-                    msg.send(f"TCP {host}:{port} result {self._return_codes[host]} => {return_code}",
+                    msg.send(f"TCP {hi[host]}:{port} result {self._return_codes[host]} => {return_code}",
                             "Host up", "high", "green_circle")
                 else:
-                    msg.send(f"TCP {host}:{port} result {self._return_codes[host]} => {return_code}",
+                    msg.send(f"TCP {hi[host]}:{port} result {self._return_codes[host]} => {return_code}",
                             "Host down", "high", "red_circle")
                 self._return_codes[(host, port)] = return_code
         else:
@@ -373,15 +454,6 @@ class Test_ARP:
         self._devices = dict()
         # Scanned networks number of runs
         self._net_run = dict()
-        # Create ignore lists from YAML config
-        self._ignore_mac = list()
-        self._ignore_ip = list()
-        if ('ignore' in config) and config['ignore']:
-            for e in config['ignore']:
-                if 'mac' in e:
-                    self._ignore_mac.append(e['mac'])
-                if 'ip' in e:
-                    self._ignore_ip.append(e['ip'])
 
     def get_default_route_ip(self):
         """Get the local IP address used for the default route."""
@@ -431,7 +503,7 @@ class Test_ARP:
         for n in range(scans):
             answered = srp(packet, timeout=timeout, verbose=0)[0]
             for sent, received in answered:
-                if (not received.hwsrc in self._ignore_mac) and (not received.psrc in self._ignore_ip):
+                if (not hi.do_ignore(received.hwsrc)) and (not hi.do_ignore(received.psrc)):
                     devices[received.psrc] = received.hwsrc
         # Look for devices seen
         for ip in devices.keys():
@@ -439,7 +511,7 @@ class Test_ARP:
             if ip in self._devices:
                 # Using changed MAC address
                 if self._devices[ip][0] != devices[ip]:
-                    msg.send(f"{ip} changed mac {self._devices[ip][0]} => {devices[ip]}",
+                    msg.send(f"{hi[ip]} changed mac {hi[self._devices[ip][0]]} => {hi[devices[ip]]}",
                          "MAC Change", "high", "arrows_counterclockwise")
                     # Mark as seen right now with new MAC
                     self._devices[ip] = (devices[ip], 0)
@@ -451,12 +523,12 @@ class Test_ARP:
                 self._devices[ip] = (devices[ip], 0)
                 # If network is validated do report new device.
                 if self._net_run[target_net] >= validate:
-                    msg.send(f'{ip} appeared {self._devices[ip][0]}', 
+                    msg.send(f'{hi[ip]} appeared {hi[self._devices[ip][0]]}', 
                              "New IP", "high", "green_circle")
         # Look for devices not seen for validation period.
         for ip in list(self._devices.keys()):
             if self._devices[ip][1] >= validate:
-                msg.send(f'{ip} disappeared {self._devices[ip][0]}',
+                msg.send(f'{hi[ip]} disappeared {hi[self._devices[ip][0]]}',
                          "IP Gone", "high", "red_circle")
                 del self._devices[ip]
         # Schedule again.
@@ -492,16 +564,15 @@ def main():
     # Do handle Ctrl-C interrupt signal.
     signal.signal(signal.SIGINT, signal_handler)
 
-    # Do read config
+    # Do read global config
     global config
     config = Config(args.config)
-    #config.dump()
-    # If called via sudo, do use original user as default.
-    default_user = os.environ.get("SUDO_USER")
-
     # Global timed queue
     global tq
     tq = TimedFunctionQueue()
+    # Global host info
+    global hi
+    hi = HostInfo()
 
     # Global messaging
     global msg
@@ -520,6 +591,8 @@ def main():
         except TypeError:
             logging.fatal(f'YAML Fail: ntfy needs to be an array')
 
+    # If called via sudo, do use original user as default.
+    default_user = os.environ.get("SUDO_USER")
     # Schedule tests to be done.
     ts = Test_SSH()
     if ('ssh' in config) and config['ssh']:
@@ -571,7 +644,11 @@ def main():
             if delay_s > 0:
                 logging.debug(f"Sleep for {delay_s:.1f} s")
                 time.sleep(delay_s)
-
+    # Just as a dummy.
+    except ConfigError as e:
+        logging.fatal(f'Exception: {e}')
+        msg.send(f'Exception: {e}', "Exception", "max", "scream")
+        stop()
     except Exception as e:
         logging.fatal(f'Exception: {e}')
         msg.send(f'Exception: {e}', "Exception", "max", "scream")

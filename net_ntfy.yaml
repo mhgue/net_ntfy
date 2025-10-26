@@ -35,8 +35,13 @@ arp:
   - period: 3
     net: 10.8.0.0/24
 
-# Ignore devices e.g. moving around in WLAN.
-ignore:
-  - mac: eb:07:6a:26:41:4b
+# Host information
+host:
+  - name: tiny-server
+    mac: eb:07:6a:26:41:4b
+    ip: 10.8.0.1
+  - name: g00g1
+    mac: 26:41:4b:eb:07:6a
+    ignore: true  # Ignore devices e.g. moving around in WLAN.
 
 #EOF

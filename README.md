@@ -180,9 +180,11 @@ The file shall be in [YAML format](https://en.wikipedia.org/wiki/YAML) and may c
   * `timeout:` Time in seconds to wait for ARP request reply.
   * `scan:` Number of times to repeat the ARP request and accumulate results.
   * `validation:` Number of consecutive attempts to assume a device as being disappeared.
-* `ignore:` a **list** of entries to be ignored for detection and reporting on ARP scans. Not networks or wildcards supported.
-  * `mac:` MAC address to be ignored
-  * `ip:` IP address to be ignored
+* `host:` a **list** of host information. Used to ignore, resolve names, ...
+  * `name:` Hostname
+  * `mac:` MAC address of the host
+  * `ip:` IP address of the host
+  * `ignore:` Flag if this host shall be ignored for detection and reporting on ARP scans.
 
 Do read the [example provided here](net_ntfy.yaml).
 
@@ -205,6 +207,7 @@ The script is constructed in an OOP manner in classes:
 * `Config` A class to guess the location of the configuration file, if not provided explicit. It is reading the file and providing configuration.
 * `SendNTFY` A class to send a notification using ntfy service.
 * `TimedFunctionQueue` A class providing a timed queue of functions to be called. This enables cooperative execution of many tests with independent periods without the need of multithreading.
+* `HostInfo` A class to request, store and provide information for hosts.
 * `Test_TCP` A class to execute **TCP** port connection tests.
 * `Test_SSH` A class to execute **SSH** connection tests.
 * `Test_ARP` A class to execute **ARP** scans of networks.
@@ -218,14 +221,15 @@ For member functions the class name is logged.
 
 ## ToDo
 Collection of things that may be nice and if there is enough time may appear here:
-* Do provide host names from DNS and/or YAML for IP and/or MAC.
 * Do support probing UDP ports.
+* Do support probing by `ping` (ICMP echo).
 
 ### Done
 Things of the ToDo list that are now implemented.
 * Do support other ntfy hosts (not just ntfy.sh) by YAML config.
 * Do support multiple ntfy hosts.
 * Do provide instance name if running on several hosts using same ntfy channel.
+* Do provide host names from DNS and/or YAML for IP and/or MAC.
 
 ## License
 This script is published unter the [Apache License Version 2.0](LICENSE) or later.
