@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python3
 
 # -*- coding: utf-8 -*-
 
@@ -24,6 +24,7 @@ see README.md for more options.
 """
 
 import argparse
+import datetime
 import heapq
 import inspect
 import logging # Prevent using print()
@@ -152,11 +153,19 @@ class SendNTFY:
                     "Tags": tags
                 })
             response.raise_for_status()  # Wenn der Statuscode nicht 2xx ist, wird eine Ausnahme ausgelöst
-            logging.debug(f'Message: "{message}" send.')
+            logging.debug(f'Msg: "{message}" send.')
             return 0
-        except requests.exceptions.RequestException as e:
-            logging.warning(f'Message: "{message}" failed: {e}')
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 429:
+                logging.warning(f'Msg blocked by server {self._host}: {e}')
+                # ntfy.sh is replying 429 presumably to protect against overload.
+                # TODO: Here we shall take an aktion e.g. report on second server, ...
+            else:
+                logging.warning(f'Msg: "{message}" failed: {e}')
             return -1
+        except requests.exceptions.RequestException as e:
+            logging.warning(f'Msg: "{message}" failed: {e}')
+            return -2
 
 class SendNTFYs:
     def __init__(self):
@@ -256,13 +265,13 @@ class HostInfo:
                     if ('ignore' in h) and h['ignore']:
                         for tag in ['ip', 'mac', 'name']:
                             if tag in h:
-                                self._ignore[self.clean(h[tag])]
+                                self._ignore.add(self.clean(h[tag]))
                     if ('name' in h) and h['name']:
                         for tag in ['ip', 'mac']:
                             if tag in h:
                                 self._name[self.clean(h[tag])] = h['name']
             except TypeError:
-                logging.fatal(f'YAML Fail: host needs to be an array')
+                logging.fatal(f'YAML Fail: "host:" needs to be an array')
         
     def __getitem__(self, addr):
         addr = self.clean(addr)
@@ -535,31 +544,56 @@ class Test_ARP:
         tq.schedule(period_s, self.test, period_s, timeout, scans, validate, target_net)
 
 # Clean stop
-def stop():
+def stop(return_code=0):
     logging.info(f"{sys._getframe().f_code.co_name}()")
     msg.send("Stop network notification", "Stop", "default", "stop_sign,stop_sign")
-    sys.exit(0)
+    sys.exit(return_code)
 
 def signal_handler(sig, frame):
     stop()
 
+def handle_exception(exc_type, exc_value, exc_tb):
+    logging.fatal(f'Exception: {e}')
+    path = os.path.abspath(sys.argv[0])
+    dir = os.path.dirname(path)
+    name = os.path.basename(path)
+    name = os.path.splitext(name)[0]
+    timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    # Open a file in append mode and write the backtrace
+    with open(f'{dir}/{name}.log', 'a') as f:
+        f.write(f'\n{timestamp} ##### Exception occurred:\n')
+        # Format and write the complete traceback
+        traceback.print_exception(exc_type, exc_value, exc_tb, file=f)
+        f.write('\n#####\n')
+    msg.send(f'Exception: {e} (see {name}.log)', "Exception", "max", "scream")
+    stop(1)
+
+def valid_verbose_value(value):
+    ivalue = int(value)
+    if ivalue < 0 or ivalue > 2:
+        raise argparse.ArgumentTypeError( "Die Zahl muss zwischen 0 und 2 liegen" )
+    return ivalue
+
 def main():
+    sys.excepthook = handle_exception
     # Command line option parsing (provide global)
     parser = argparse.ArgumentParser(description="Network resources monitoring and reporting.")
     parser.add_argument("-c", "--config", type=str,
                         help='YAML configuration file')
     parser.add_argument("-m", "--min", type=int, default=60,
                         help="Seconds per minute, for testing with time-lapse")
-    parser.add_argument("-v", "--verbose", action="store_true",
-                        help="increase output verbosity")
+    parser.add_argument("-v", "--verbose", type=valid_verbose_value, required=False, 
+                        help="increase output verbosity [0 ... 2]. Default 0")
     global args
     args = parser.parse_args()
 
-    # Set logging level. Debug if verbose requested.
-    if args.verbose:
+    # Set logging level. Debug if highest verbose is requested.
+    if args.verbose == 2:
         logging.basicConfig(level=logging.DEBUG, format="%(levelname)s:%(message)s")
-    else:
+    elif args.verbose == 1:
         logging.basicConfig(level=logging.INFO)
+    else:
+        logging.basicConfig(level=logging.WARN)
 
     # Do handle Ctrl-C interrupt signal.
     signal.signal(signal.SIGINT, signal_handler)
@@ -585,11 +619,11 @@ def main():
                 # This instance to distinguish if sharing channel.
                 instance = e.get('instance', None)
                 if not 'channel' in e:
-                    logging.fatal(f'YAML Fail: ntfy entry without channel is ignored')
+                    logging.fatal(f'YAML Fail: "ntfy:" entry without channel is ignored')
                 else:
                     msg.add(e['channel'], host, instance)
         except TypeError:
-            logging.fatal(f'YAML Fail: ntfy needs to be an array')
+            logging.fatal(f'YAML Fail: "ntfy:" needs to be an array')
 
     # If called via sudo, do use original user as default.
     default_user = os.environ.get("SUDO_USER")
@@ -604,7 +638,7 @@ def main():
             # Do specify the socket type to look for (e.g. '/keyring/', '/gnupg/', '/gcr/')
             sock_type = e.get('sock_type', None)
             if not 'host' in e:
-                logging.fatal(f'YAML Fail: ssh entry without host is ignored')
+                logging.fatal(f'YAML Fail: "ssh:" entry without host is ignored')
             else:
                 tq.schedule(period_s, ts.test, period_s, e['host'], user, sock_type)
     tt = Test_TCP()
@@ -615,7 +649,7 @@ def main():
             # Default port is SSH (22)
             port = e.get('port', 22)
             if not 'host' in e:
-                logging.fatal(f'YAML Fail: tcp entry without host is ignored')
+                logging.fatal(f'YAML Fail: "tcp:" entry without host is ignored')
             else:
                 tq.schedule(period_s, tt.test, period_s, e['host'], port)
     ta = Test_ARP()
@@ -633,26 +667,15 @@ def main():
             validate = e.get('validate', 5)
             tq.schedule(period_s, ta.test, period_s, timeout, scans, validate, net)
 
-    try:
-        # Do report start of test.
-        msg.send("Start network notification", "Start", "default", "eyes")
-
-        # Do run the event scheduler.
-        while not tq.is_empty():
-            tq.run_pending()
-            delay_s = tq.until_next_s()
-            if delay_s > 0:
-                logging.debug(f"Sleep for {delay_s:.1f} s")
-                time.sleep(delay_s)
-    # Just as a dummy.
-    except ConfigError as e:
-        logging.fatal(f'Exception: {e}')
-        msg.send(f'Exception: {e}', "Exception", "max", "scream")
-        stop()
-    except Exception as e:
-        logging.fatal(f'Exception: {e}')
-        msg.send(f'Exception: {e}', "Exception", "max", "scream")
-        stop()
+    # Do report start of test.
+    msg.send("Start network notification", "Start", "default", "eyes")
+    # Do run the event scheduler.
+    while not tq.is_empty():
+        tq.run_pending()
+        delay_s = tq.until_next_s()
+        if delay_s > 0:
+            logging.debug(f"Sleep for {delay_s:.1f} s")
+            time.sleep(delay_s)
 
 if __name__ == "__main__":
     main()
