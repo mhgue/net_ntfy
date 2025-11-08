@@ -20,7 +20,7 @@ If using ARP scan, that will need `root` privileges, together with SSH of a diff
     - [Using ntfy](#using-ntfy)
     - [Using ARP Scans](#using-arp-scans)
     - [Testing and Debug](#testing-and-debug)
-    - [Run as systemd Daemon](#run-as-systemd-daemon)
+    - [Run as Debian systemd Daemon](#run-as-debian-systemd-daemon)
   - [Configuration](#configuration)
     - [Users to use](#users-to-use)
   - [Construction](#construction)
@@ -61,6 +61,7 @@ It may operate a as network monitoring service on a home server or any other sma
 * Get from here `git clone https://github.com/mhgue/net_ntfy.git`
 * Edit [net_ntfy.yaml](net_ntfy.yaml) to fit own ntfy channel and hosts to monitor.
 * Install Python3 and needed modules (see [requirements.txt](requirements.txt)).
+    `pip install -r /path/to/requirements.txt`
 * Run [net_ntfy.py](net_ntfy.py)
 
 For easy usage there is a [bash script](net_ntfy.sh) that creates a python virtual environment and installs dependencies inside.
@@ -104,32 +105,37 @@ The python script [net_ntfy.py](net_ntfy.py) has command line options for debug 
 * **-v** Is a flag for verbose logging of the script actions. It is setting the logging level to `DEBUG`.
 * **-h** Can be used to get a list of the options available.
 
-### Run as systemd Daemon
-This script is most useful if running no a permanently powered Linux host as a daemon process.
-This can be a very tiny Linux host.
-There are two way to do so:
-* If all python modules are installed on the system, the python script can be installed as a `systemd` service:
+### Run as Debian systemd Daemon
+This script is most useful if running on a permanently powered Linux host as a daemon process.
+This can be a very tiny Linux host (e.g. NanoPi NEO3 et al.).
 
+There are two way to do so:
+* If all python modules are installed on the system, the python script can be installed as a `systemd` service without virtual environment:
 ```bash
 sudo su -
+# Install all python3 needed.
+apt install python3 git python3-certifi python3-idna python3-psutil python3-yaml
+apt install python3-requests python3-scapy
+# Create a copy in /opt
 cd /opt
 git clone https://github.com/mhgue/net_ntfy.git
 cd net_ntfy
-# Edit net_ntfy.yaml for your needs and ntfy channel.
+# Edit net_ntfy.yaml for your needs and ntfy channels to use.
+# Setup as a systemd service:
 cp net_ntfy.service /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable net_ntfy.service
 systemctl start net_ntfy.service
-# Check with
+# Check if running:
 systemctl status net_ntfy.service
-# Read log
+# Read log to check output:
 journalctl -u net_ntfy.service
 ```
-* If modules shall not be installed for the entire system:
+* If python modules shall not be installed for the entire system, let it run in a virtual environment:
 ```bash
 sudo su -
 # Install python3 and virtual environment
-apt install python3 python3-venv
+apt install python3 git python3-pip python3-venv
 cd /opt
 git clone https://github.com/mhgue/net_ntfy.git
 cd net_ntfy

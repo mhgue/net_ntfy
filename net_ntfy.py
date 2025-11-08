@@ -4,24 +4,10 @@
 
 """
 Probe network connections
-sudo apt install python3 python3-sh python3-requests
 
-If shall run as a root daemon on a debian system do:
-  cd /opt
-  git clone https://github.com/mhgue/net_ntfy.git
-  cd net_ntfy
-  sudo cp net_ntfy.service /etc/systemd/system/
-  sudo systemctl daemon-reload
-  sudo systemctl enable net_ntfy.service
-  sudo systemctl start net_ntfy.service
-Check with
-  sudo systemctl status net_ntfy.service
-Read log:
-  sudo journalctl -u net_ntfy.service
-
-see README.md for more options.
-
+see README.md and https://github.com/mhgue/net_ntfy for more options.
 """
+from __future__ import annotations
 
 import argparse
 import datetime
@@ -76,8 +62,9 @@ class ConfigError(Exception):
 
 # Get configuration from YAML file
 class Config:
-    def __init__(self, filename = None):
+    def __init__(self, filename: Optional[str] = None):
         self._filename = filename
+        self._data: Dict[str, Any] = {}
         self.guess_file()
         with open(self._filename, 'r') as f:
             self._data = yaml.safe_load(f)
