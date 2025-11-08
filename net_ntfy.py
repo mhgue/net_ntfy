@@ -432,10 +432,10 @@ class Test_TCP:
         if (host, port) in self._return_codes:
             if return_code != self._return_codes[(host, port)]:
                 if return_code == 0:
-                    msg.send(f"TCP {hi[host]}:{port} result {self._return_codes[host]} => {return_code}",
+                    msg.send(f"TCP {hi[host]}:{port} result {self._return_codes[(host, port)]} => {return_code}",
                             "Host up", "high", "green_circle")
                 else:
-                    msg.send(f"TCP {hi[host]}:{port} result {self._return_codes[host]} => {return_code}",
+                    msg.send(f"TCP {hi[host]}:{port} result {self._return_codes[(host, port)]} => {return_code}",
                             "Host down", "high", "red_circle")
                 self._return_codes[(host, port)] = return_code
         else:
