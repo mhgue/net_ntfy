@@ -23,6 +23,7 @@ import socket
 import subprocess
 import sys
 import threading # For locking support only (not multithreading used)
+import traceback
 import time
 import yaml
 from functools import wraps
@@ -540,7 +541,7 @@ def signal_handler(sig, frame):
     stop()
 
 def handle_exception(exc_type, exc_value, exc_tb):
-    logging.fatal(f'Exception: {e}')
+    logging.fatal(f'Exception: {exc_type.__name__} {exc_value}')
     path = os.path.abspath(sys.argv[0])
     dir = os.path.dirname(path)
     name = os.path.basename(path)
@@ -549,6 +550,8 @@ def handle_exception(exc_type, exc_value, exc_tb):
     # Open a file in append mode and write the backtrace
     with open(f'{dir}/{name}.log', 'a') as f:
         f.write(f'\n{timestamp} ##### Exception occurred:\n')
+        f.write(f'Type: {exc_type.__name__}')
+        f.write(f'Message: {exc_value}')
         # Format and write the complete traceback
         traceback.print_exception(exc_type, exc_value, exc_tb, file=f)
         f.write('\n#####\n')
@@ -558,7 +561,7 @@ def handle_exception(exc_type, exc_value, exc_tb):
 def valid_verbose_value(value):
     ivalue = int(value)
     if ivalue < 0 or ivalue > 2:
-        raise argparse.ArgumentTypeError( "Die Zahl muss zwischen 0 und 2 liegen" )
+        raise argparse.ArgumentTypeError( "Verbose level must be in [0 .. 2]" )
     return ivalue
 
 def main():
